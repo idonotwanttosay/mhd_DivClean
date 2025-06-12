@@ -73,3 +73,30 @@ void initialize_test_field(FlowField& flow) {
         }
     }
 }
+
+// Peak Bx test from "Hyperbolic Divergence Cleaning for the MHD Equations"
+// Uniform fluid with a localized magnetic perturbation creating non-zero
+// divergence initially.
+void initialize_peak_bx(FlowField& flow) {
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < flow.bx.nx; ++i) {
+        for (int j = 0; j < flow.bx.ny; ++j) {
+            double x = flow.bx.x0 + i * flow.bx.dx - 0.5;
+            double y = flow.bx.y0 + j * flow.bx.dy - 0.5;
+
+            flow.rho.data[i][j] = 1.0;           // constant density
+            flow.u.data[i][j]   = 0.0;           // initially at rest
+            flow.v.data[i][j]   = 0.0;
+            flow.p.data[i][j]   = 1.0;           // constant pressure
+            flow.e.data[i][j]   = 1.0/(1.4 - 1.0);
+
+            // Magnetic field: By uniform, Bx localized Gaussian peak
+            double r2 = x*x + y*y;
+            double peak = std::exp(-r2 / 0.01);  // narrow Gaussian
+            flow.bx.data[i][j] = peak;           // localized divergence source
+            flow.by.data[i][j] = 0.0;
+
+            flow.psi.data[i][j] = 0.0;
+        }
+    }
+}
