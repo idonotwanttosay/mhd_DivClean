@@ -6,7 +6,7 @@
 #include <iostream>
 #include <algorithm>
 
-static constexpr double ETA = 0.01;    // Magnetic diffusivity
+static constexpr double ETA = 0.0;     // Magnetic diffusivity disabled for ideal MHD
 static constexpr double CH = 1.0;      // GLM wave speed
 static constexpr double CR = 0.18;     // GLM damping coefficient (improved value)
 static constexpr double gamma_gas = 1.4;
@@ -303,7 +303,7 @@ static FlowField refine_flow(const FlowField& coarse,int start_x,int start_y,int
     return fine;
 }
 
-static void update_level(FlowField& flow,double dt,double nu){
+static void update_level_euler(FlowField& flow,double dt,double nu){
     Grid& grid = flow.rho;
     
     // Use dynamic CFL timestep
@@ -591,6 +591,69 @@ static void update_level(FlowField& flow,double dt,double nu){
 
     // Reduce any accumulated divergence through damping of psi
     damp_divergence(flow, dt);
+}
+
+// Second-order Runge-Kutta update using two Euler substeps
+static void update_level(FlowField& flow, double dt, double nu){
+    FlowField original = flow;
+    // first Euler step
+    update_level_euler(flow, dt, nu);
+    // second Euler step starting from the result of first
+    FlowField second = flow;
+    update_level_euler(second, dt, nu);
+
+    Grid& g = flow.rho;
+    #pragma omp parallel for collapse(2)
+    for(int i=0;i<g.nx;++i){
+        for(int j=0;j<g.ny;++j){
+            flow.rho.data[i][j] = 0.5*(original.rho.data[i][j] + second.rho.data[i][j]);
+            flow.u.data[i][j]   = 0.5*(original.u.data[i][j]   + second.u.data[i][j]);
+            flow.v.data[i][j]   = 0.5*(original.v.data[i][j]   + second.v.data[i][j]);
+            flow.p.data[i][j]   = 0.5*(original.p.data[i][j]   + second.p.data[i][j]);
+            flow.e.data[i][j]   = 0.5*(original.e.data[i][j]   + second.e.data[i][j]);
+            flow.bx.data[i][j]  = 0.5*(original.bx.data[i][j]  + second.bx.data[i][j]);
+            flow.by.data[i][j]  = 0.5*(original.by.data[i][j]  + second.by.data[i][j]);
+            flow.psi.data[i][j] = 0.5*(original.psi.data[i][j] + second.psi.data[i][j]);
+        }
+    }
+    // ensure periodic boundaries and damping already handled in Euler steps,
+    // but enforce periodicity after averaging
+    for (int j = 0; j < g.ny; ++j) {
+        flow.rho.data[0][j] = flow.rho.data[g.nx-2][j];
+        flow.rho.data[g.nx-1][j] = flow.rho.data[1][j];
+        flow.u.data[0][j] = flow.u.data[g.nx-2][j];
+        flow.u.data[g.nx-1][j] = flow.u.data[1][j];
+        flow.v.data[0][j] = flow.v.data[g.nx-2][j];
+        flow.v.data[g.nx-1][j] = flow.v.data[1][j];
+        flow.p.data[0][j] = flow.p.data[g.nx-2][j];
+        flow.p.data[g.nx-1][j] = flow.p.data[1][j];
+        flow.e.data[0][j] = flow.e.data[g.nx-2][j];
+        flow.e.data[g.nx-1][j] = flow.e.data[1][j];
+        flow.bx.data[0][j] = flow.bx.data[g.nx-2][j];
+        flow.bx.data[g.nx-1][j] = flow.bx.data[1][j];
+        flow.by.data[0][j] = flow.by.data[g.nx-2][j];
+        flow.by.data[g.nx-1][j] = flow.by.data[1][j];
+        flow.psi.data[0][j] = flow.psi.data[g.nx-2][j];
+        flow.psi.data[g.nx-1][j] = flow.psi.data[1][j];
+    }
+    for (int i = 0; i < g.nx; ++i) {
+        flow.rho.data[i][0] = flow.rho.data[i][g.ny-2];
+        flow.rho.data[i][g.ny-1] = flow.rho.data[i][1];
+        flow.u.data[i][0] = flow.u.data[i][g.ny-2];
+        flow.u.data[i][g.ny-1] = flow.u.data[i][1];
+        flow.v.data[i][0] = flow.v.data[i][g.ny-2];
+        flow.v.data[i][g.ny-1] = flow.v.data[i][1];
+        flow.p.data[i][0] = flow.p.data[i][g.ny-2];
+        flow.p.data[i][g.ny-1] = flow.p.data[i][1];
+        flow.e.data[i][0] = flow.e.data[i][g.ny-2];
+        flow.e.data[i][g.ny-1] = flow.e.data[i][1];
+        flow.bx.data[i][0] = flow.bx.data[i][g.ny-2];
+        flow.bx.data[i][g.ny-1] = flow.bx.data[i][1];
+        flow.by.data[i][0] = flow.by.data[i][g.ny-2];
+        flow.by.data[i][g.ny-1] = flow.by.data[i][1];
+        flow.psi.data[i][0] = flow.psi.data[i][g.ny-2];
+        flow.psi.data[i][g.ny-1] = flow.psi.data[i][1];
+    }
 }
 
 void solve_MHD(AMRGrid& amr, std::vector<FlowField>& flows, double dt, double nu, int, double){
