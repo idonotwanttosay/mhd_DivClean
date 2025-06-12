@@ -54,7 +54,7 @@ int main(){
     double elapsed = t1 - t0;
     std::cout << "Total time " << elapsed << " s\n";
 
-    std::ofstream time_file("time.txt");
+    std::ofstream time_file(out_dir +"time.txt");
     if(time_file.is_open()){
         time_file << elapsed << "\n";
     }
