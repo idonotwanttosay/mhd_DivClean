@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <chrono>
+#include <omp.h>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -33,7 +35,7 @@ int main(){
     initialize_peak_bx(flow);      // peak Bx initial condition
     std::vector<FlowField> flows = {flow};
 
-    auto t0=std::chrono::high_resolution_clock::now();
+    double t0 = omp_get_wtime();
     for(int step=0; step<=max_steps; ++step){
         double dt = compute_cfl_timestep(flows[0]);
 
@@ -48,8 +50,13 @@ int main(){
             save_flow_MHD(flows[0], out_dir, step);
         }
     }
-    auto t1=std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = t1 - t0;
-    std::cout << "Total time " << elapsed.count() << " s\n";
+    double t1 = omp_get_wtime();
+    double elapsed = t1 - t0;
+    std::cout << "Total time " << elapsed << " s\n";
+
+    std::ofstream time_file("time.txt");
+    if(time_file.is_open()){
+        time_file << elapsed << "\n";
+    }
     return 0;
 }
