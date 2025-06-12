@@ -9,3 +9,6 @@ std::pair<double, double> compute_divergence_errors(const FlowField& flow);
 void damp_divergence(FlowField& flow, double dt);
 // Single explicit GLM divergence cleaning step
 void divergence_cleaning_step(FlowField& flow, double dt);
+extern double omp_compute_time;
+double get_omp_compute_time();
+void reset_omp_compute_time();
