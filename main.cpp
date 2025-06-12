@@ -20,7 +20,7 @@ static std::string prepare_output_dir(){
 }
 
 int main(){
-    const int nx=64, ny=64;
+    const int nx=128, ny=128; // higher resolution for peak Bx test
     const double Lx=1.0, Ly=1.0;
     const double dx=Lx/(nx-1), dy=Ly/(ny-1);
     const int max_steps=200;
@@ -28,20 +28,24 @@ int main(){
 
     std::string out_dir = prepare_output_dir();
 
+    AMRGrid amr(nx, ny, Lx, Ly, 1); // single level grid
     FlowField flow(nx,ny,dx,dy);
-    // Use peak Bx initial condition from the divergence cleaning paper
-    initialize_peak_bx(flow);
+    initialize_peak_bx(flow);      // peak Bx initial condition
+    std::vector<FlowField> flows = {flow};
 
     auto t0=std::chrono::high_resolution_clock::now();
     for(int step=0; step<=max_steps; ++step){
-        double dt = compute_cfl_timestep(flow);
+        double dt = compute_cfl_timestep(flows[0]);
 
-        divergence_cleaning_step(flow, dt);
+        solve_MHD(amr, flows, dt, 0.0, 0, 0.0); // full MHD update
 
         if(step % output_every == 0){
+            auto [max_divB, L1_divB] = compute_divergence_errors(flows[0]);
             std::cout << "step " << std::setw(4) << step
-                      << " dt=" << dt << "\n";
-            save_flow_MHD(flow, out_dir, step);
+                      << " dt=" << dt
+                      << " max_divB=" << max_divB
+                      << " L1_divB=" << L1_divB << "\n";
+            save_flow_MHD(flows[0], out_dir, step);
         }
     }
     auto t1=std::chrono::high_resolution_clock::now();
