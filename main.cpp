@@ -35,6 +35,7 @@ int main(){
     initialize_peak_bx(flow);      // peak Bx initial condition
     std::vector<FlowField> flows = {flow};
 
+    reset_omp_compute_time();
     double t0 = omp_get_wtime();
     for(int step=0; step<=max_steps; ++step){
         double dt = compute_cfl_timestep(flows[0]);
@@ -52,11 +53,13 @@ int main(){
     }
     double t1 = omp_get_wtime();
     double elapsed = t1 - t0;
-    std::cout << "Total time " << elapsed << " s\n";
+    double omp_elapsed = get_omp_compute_time();
+    std::cout << "Total time " << elapsed << " s (OpenMP " << omp_elapsed << " s)\n";
 
-    std::ofstream time_file(out_dir +"time.txt");
+    std::ofstream time_file(out_dir + "/time.txt");
     if(time_file.is_open()){
         time_file << elapsed << "\n";
+        time_file << omp_elapsed << "\n";
     }
     return 0;
 }

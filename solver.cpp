@@ -11,6 +11,8 @@ static constexpr double CH = 1.0;      // GLM wave speed
 static constexpr double CR = 0.18;     // GLM damping coefficient (improved value)
 static constexpr double gamma_gas = 1.4;
 
+double omp_compute_time = 0.0;
+
 // Helper function: compute Laplacian
 static inline double laplacian(const Grid& g, int i, int j) {
     return (g.data[i+1][j] - 2*g.data[i][j] + g.data[i-1][j])/(g.dx*g.dx)
@@ -164,6 +166,7 @@ double compute_cfl_timestep(const FlowField& flow, double cfl_number) {
     double dt_min = 1e10;
     const Grid& grid = flow.rho;
     
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2) reduction(min:dt_min)
     for (int i = 1; i < grid.nx-1; ++i) {
         for (int j = 1; j < grid.ny-1; ++j) {
@@ -182,6 +185,7 @@ double compute_cfl_timestep(const FlowField& flow, double cfl_number) {
             dt_min = std::min(dt_min, std::min(dt_x, dt_y));
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     
     return cfl_number * dt_min;
 }
@@ -193,6 +197,7 @@ std::pair<double, double> compute_divergence_errors(const FlowField& flow) {
     double L1_divB = 0.0;
     int count = 0;
     
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2) reduction(max:max_divB) reduction(+:L1_divB,count)
     for (int i = 1; i < grid.nx-1; ++i) {
         for (int j = 1; j < grid.ny-1; ++j) {
@@ -205,6 +210,7 @@ std::pair<double, double> compute_divergence_errors(const FlowField& flow) {
             count++;
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     
     L1_divB /= count;
     return {max_divB, L1_divB};
@@ -212,12 +218,14 @@ std::pair<double, double> compute_divergence_errors(const FlowField& flow) {
 
 // Apply simple exponential damping to psi to mitigate accumulated divergence
 void damp_divergence(FlowField& flow, double dt) {
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < flow.psi.nx; ++i) {
         for (int j = 0; j < flow.psi.ny; ++j) {
             flow.psi.data[i][j] *= std::exp(-CR * CH * dt);
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
 }
 
 // Explicit GLM divergence cleaning step for a stand-alone test
@@ -229,6 +237,7 @@ void divergence_cleaning_step(FlowField& flow, double dt) {
     auto by_new  = flow.by.data;
 
     // Update psi using divergence of B
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for (int i = 1; i < g.nx-1; ++i) {
         for (int j = 1; j < g.ny-1; ++j) {
@@ -238,6 +247,7 @@ void divergence_cleaning_step(FlowField& flow, double dt) {
                           - dt * (CH*CH * divB + CR * CH * flow.psi.data[i][j]);
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
 
     // Periodic boundaries for psi
     for (int j = 0; j < g.ny; ++j) {
@@ -250,6 +260,7 @@ void divergence_cleaning_step(FlowField& flow, double dt) {
     }
 
     // Update magnetic field using gradient of new psi
+    omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for (int i = 1; i < g.nx-1; ++i) {
         for (int j = 1; j < g.ny-1; ++j) {
@@ -259,6 +270,7 @@ void divergence_cleaning_step(FlowField& flow, double dt) {
             by_new[i][j] = flow.by.data[i][j] - dt * dpsidy;
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
 
     // Periodic boundaries for B
     for (int j = 0; j < g.ny; ++j) {
@@ -286,6 +298,7 @@ static FlowField refine_flow(const FlowField& coarse,int start_x,int start_y,int
     double x0 = coarse.rho.x0 + start_x*coarse.rho.dx;
     double y0 = coarse.rho.y0 + start_y*coarse.rho.dy;
     FlowField fine(fine_nx,fine_ny,fine_dx,fine_dy,x0,y0);
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for(int i=0;i<fine_nx;++i)
         for(int j=0;j<fine_ny;++j){
@@ -300,6 +313,7 @@ static FlowField refine_flow(const FlowField& coarse,int start_x,int start_y,int
             fine.by.data[i][j]  = coarse.by.data[ci][cj];
             fine.psi.data[i][j] = coarse.psi.data[ci][cj];
         }
+    omp_compute_time += omp_get_wtime() - omp_start;
     return fine;
 }
 
@@ -337,6 +351,7 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
     auto spsi_y = std::vector<std::vector<double>>(grid.nx, std::vector<double>(grid.ny));
 
     // Slopes in X direction
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for(int i=1;i<grid.nx-1;++i){
         for(int j=0;j<grid.ny;++j){
@@ -356,8 +371,10 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
                                   flow.psi.data[i+1][j]-flow.psi.data[i][j]);
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
 
     // Slopes in Y direction
+    omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for(int i=0;i<grid.nx;++i){
         for(int j=1;j<grid.ny-1;++j){
@@ -377,8 +394,10 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
                                   flow.psi.data[i][j+1]-flow.psi.data[i][j]);
         }
     }
-    
+    omp_compute_time += omp_get_wtime() - omp_start;
+
     // First compute momentum (for HLL solver)
+    omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < grid.nx; ++i) {
         for (int j = 0; j < grid.ny; ++j) {
@@ -386,8 +405,10 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
             momy_new[i][j] = flow.rho.data[i][j] * flow.v.data[i][j];
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     
     // Update using HLL solver
+    omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for (int i = 1; i < grid.nx-1; ++i) {
         for (int j = 1; j < grid.ny-1; ++j) {
@@ -524,8 +545,10 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
             rho_new[i][j] = std::max(rho_new[i][j], 1e-10);
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     
     // Update primitive variables
+    omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for (int i = 1; i < grid.nx-1; ++i) {
         for (int j = 1; j < grid.ny-1; ++j) {
@@ -545,8 +568,10 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
             flow.p.data[i][j] = std::max(flow.p.data[i][j], 1e-10);
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     
     // Boundary conditions (periodic)
+    omp_start = omp_get_wtime();
     #pragma omp parallel for
     for (int j = 0; j < grid.ny; ++j) {
         // X direction periodic BC
@@ -567,7 +592,9 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
         flow.psi.data[0][j] = flow.psi.data[grid.nx-2][j];
         flow.psi.data[grid.nx-1][j] = flow.psi.data[1][j];
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     
+    omp_start = omp_get_wtime();
     #pragma omp parallel for
     for (int i = 0; i < grid.nx; ++i) {
         // Y direction periodic BC
@@ -588,6 +615,7 @@ static void update_level_euler(FlowField& flow,double dt,double nu){
         flow.psi.data[i][0] = flow.psi.data[i][grid.ny-2];
         flow.psi.data[i][grid.ny-1] = flow.psi.data[i][1];
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
 
     // Reduce any accumulated divergence through damping of psi
     damp_divergence(flow, dt);
@@ -603,6 +631,7 @@ static void update_level(FlowField& flow, double dt, double nu){
     update_level_euler(second, dt, nu);
 
     Grid& g = flow.rho;
+    double omp_start = omp_get_wtime();
     #pragma omp parallel for collapse(2)
     for(int i=0;i<g.nx;++i){
         for(int j=0;j<g.ny;++j){
@@ -616,6 +645,7 @@ static void update_level(FlowField& flow, double dt, double nu){
             flow.psi.data[i][j] = 0.5*(original.psi.data[i][j] + second.psi.data[i][j]);
         }
     }
+    omp_compute_time += omp_get_wtime() - omp_start;
     // ensure periodic boundaries and damping already handled in Euler steps,
     // but enforce periodicity after averaging
     for (int j = 0; j < g.ny; ++j) {
@@ -685,4 +715,12 @@ void solve_MHD(AMRGrid& amr, std::vector<FlowField>& flows, double dt, double nu
     for(auto& f : flows){
         update_level(f, dt, nu);
     }
+}
+
+double get_omp_compute_time() {
+    return omp_compute_time;
+}
+
+void reset_omp_compute_time() {
+    omp_compute_time = 0.0;
 }
