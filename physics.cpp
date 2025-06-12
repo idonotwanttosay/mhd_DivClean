@@ -50,3 +50,26 @@ void add_divergence_error(FlowField& flow, double amplitude) {
         }
     }
 }
+
+// Simple analytic magnetic field for testing divergence cleaning
+void initialize_test_field(FlowField& flow) {
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < flow.bx.nx; ++i) {
+        for (int j = 0; j < flow.bx.ny; ++j) {
+            double x = flow.bx.x0 + i * flow.bx.dx - 0.5;
+            double y = flow.bx.y0 + j * flow.bx.dy - 0.5;
+
+            // Divergent magnetic field: curl-free radial pattern
+            flow.bx.data[i][j] = x * std::exp(-(x*x + y*y));
+            flow.by.data[i][j] = y * std::exp(-(x*x + y*y));
+
+            // Initialize other fields trivially
+            flow.rho.data[i][j] = 1.0;
+            flow.u.data[i][j]   = 0.0;
+            flow.v.data[i][j]   = 0.0;
+            flow.p.data[i][j]   = 1.0;
+            flow.e.data[i][j]   = 1.0/(1.4 - 1.0);
+            flow.psi.data[i][j] = 0.0;
+        }
+    }
+}
