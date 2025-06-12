@@ -21,39 +21,30 @@ static std::string prepare_output_dir(){
 
 int main(){
     const int nx=64, ny=64;
-    const double Lx=1.0,Ly=1.0, dx=Lx/(nx-1), dy=Ly/(ny-1);
-    const double nu=0.01;
-    const int max_steps=1000;
+    const double Lx=1.0, Ly=1.0;
+    const double dx=Lx/(nx-1), dy=Ly/(ny-1);
+    const int max_steps=200;
     const int output_every=20;
 
     std::string out_dir = prepare_output_dir();
 
-    AMRGrid amr(nx,ny,Lx,Ly,3); // allow up to 3 refinement levels
-    std::vector<FlowField> flows;
-    flows.emplace_back(nx,ny,dx,dy);
-    initialize_MHD_disk(flows[0]); // deterministic seed default
-    add_divergence_error(flows[0], 0.1);
-
+    FlowField flow(nx,ny,dx,dy);
+    initialize_test_field(flow);
 
     auto t0=std::chrono::high_resolution_clock::now();
     for(int step=0; step<=max_steps; ++step){
-        // Use dynamic CFL-based timestep from the current flow state
-        double dt = compute_cfl_timestep(flows[0]);
+        double dt = compute_cfl_timestep(flow);
 
-        solve_MHD(amr,flows,dt,nu,0,0.0);
+        divergence_cleaning_step(flow, dt);
 
-        // Additional damping to ensure divergence errors do not accumulate
-        damp_divergence(flows[0], dt);
-
-        if(step%output_every==0){
-            std::cout << "step "<< std::setw(4) << step
-                      << " dt="<<dt<<"\n";
-            save_flow_MHD(flows[0], out_dir, step);
-            save_amr_grid(amr, out_dir, step);
+        if(step % output_every == 0){
+            std::cout << "step " << std::setw(4) << step
+                      << " dt=" << dt << "\n";
+            save_flow_MHD(flow, out_dir, step);
         }
     }
     auto t1=std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = t1 - t0;
-    std::cout<<"Total time "<<elapsed.count()<<" s\n";
+    std::cout << "Total time " << elapsed.count() << " s\n";
     return 0;
 }

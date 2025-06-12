@@ -220,6 +220,65 @@ void damp_divergence(FlowField& flow, double dt) {
     }
 }
 
+// Explicit GLM divergence cleaning step for a stand-alone test
+void divergence_cleaning_step(FlowField& flow, double dt) {
+    const Grid& g = flow.bx;
+
+    auto psi_new = flow.psi.data;
+    auto bx_new  = flow.bx.data;
+    auto by_new  = flow.by.data;
+
+    // Update psi using divergence of B
+    #pragma omp parallel for collapse(2)
+    for (int i = 1; i < g.nx-1; ++i) {
+        for (int j = 1; j < g.ny-1; ++j) {
+            double divB = (flow.bx.data[i+1][j] - flow.bx.data[i-1][j])/(2*g.dx)
+                        + (flow.by.data[i][j+1] - flow.by.data[i][j-1])/(2*g.dy);
+            psi_new[i][j] = flow.psi.data[i][j]
+                          - dt * (CH*CH * divB + CR * CH * flow.psi.data[i][j]);
+        }
+    }
+
+    // Periodic boundaries for psi
+    for (int j = 0; j < g.ny; ++j) {
+        psi_new[0][j]       = psi_new[g.nx-2][j];
+        psi_new[g.nx-1][j]  = psi_new[1][j];
+    }
+    for (int i = 0; i < g.nx; ++i) {
+        psi_new[i][0]       = psi_new[i][g.ny-2];
+        psi_new[i][g.ny-1]  = psi_new[i][1];
+    }
+
+    // Update magnetic field using gradient of new psi
+    #pragma omp parallel for collapse(2)
+    for (int i = 1; i < g.nx-1; ++i) {
+        for (int j = 1; j < g.ny-1; ++j) {
+            double dpsidx = (psi_new[i+1][j] - psi_new[i-1][j])/(2*g.dx);
+            double dpsidy = (psi_new[i][j+1] - psi_new[i][j-1])/(2*g.dy);
+            bx_new[i][j] = flow.bx.data[i][j] - dt * dpsidx;
+            by_new[i][j] = flow.by.data[i][j] - dt * dpsidy;
+        }
+    }
+
+    // Periodic boundaries for B
+    for (int j = 0; j < g.ny; ++j) {
+        bx_new[0][j]      = bx_new[g.nx-2][j];
+        bx_new[g.nx-1][j] = bx_new[1][j];
+        by_new[0][j]      = by_new[g.nx-2][j];
+        by_new[g.nx-1][j] = by_new[1][j];
+    }
+    for (int i = 0; i < g.nx; ++i) {
+        bx_new[i][0]      = bx_new[i][g.ny-2];
+        bx_new[i][g.ny-1] = bx_new[i][1];
+        by_new[i][0]      = by_new[i][g.ny-2];
+        by_new[i][g.ny-1] = by_new[i][1];
+    }
+
+    flow.psi.data = std::move(psi_new);
+    flow.bx.data  = std::move(bx_new);
+    flow.by.data  = std::move(by_new);
+}
+
 // Main improved MHD solver function
 static FlowField refine_flow(const FlowField& coarse,int start_x,int start_y,int fine_nx,int fine_ny){
     double fine_dx = coarse.rho.dx/2.0;
