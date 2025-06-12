@@ -29,7 +29,8 @@ int main(){
     std::string out_dir = prepare_output_dir();
 
     FlowField flow(nx,ny,dx,dy);
-    initialize_test_field(flow);
+    // Use peak Bx initial condition from the divergence cleaning paper
+    initialize_peak_bx(flow);
 
     auto t0=std::chrono::high_resolution_clock::now();
     for(int step=0; step<=max_steps; ++step){
